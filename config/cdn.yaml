@@ -32,5 +32,8 @@ data:
               equals: "dev.nishikagupta.com"
         action:
           type: selectOrigin
-          originName: dev--hlx-61--nishant-gupta.aem.live
+          originName: eds-dev
           skipCache: true
+    origins:
+      - name: eds-dev
+        domain: dev--hlx-61--nishant-gupta.aem.live
