@@ -34,8 +34,9 @@ async function handleRequest(event) {
       // dont cache the response at CDN
       const headers = new Headers();
       headers.set("Cache-Control", "no-store");
+      headers.set("Content-Type", "text/html");
 
-      finalResponse = new Response(`Hello World ${name} from the edge!`, { status: 200, headers });
+      finalResponse = new Response(`<html><body>Hello World ${name} from the edge!</body></html>`, { status: 200, headers });
     } else if (url.pathname === "/weather" && req.method === "GET") {
       finalResponse = await weatherHandler(req, event.client);
     } else {

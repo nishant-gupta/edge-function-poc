@@ -25,3 +25,12 @@ data:
         action:
           type: selectAemOrigin
           originName: edgefunction-my-edge-function
+      - name: bypass-eds-cache
+        when:
+          allOf:
+            - reqProperty: domain
+              equals: "dev.nishikagupta.com"
+        action:
+          type: selectOrigin
+          originName: dev--hlx-61--nishant-gupta.aem.live
+          skipCache: true
