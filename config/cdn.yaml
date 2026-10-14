@@ -21,7 +21,7 @@ data:
           type: selectAemOrigin
           originName: edgefunction-my-edge-function
       - name: route-hello-world-to-edge-function
-        when: { reqProperty: path, equals: "/hello-world" }
+        when: { reqProperty: path, equals: "/hello-worlds" }
         action:
           type: selectAemOrigin
           originName: edgefunction-my-edge-function
