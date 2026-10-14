@@ -156,6 +156,106 @@ The following command will execute tests using `mocha`.
 npm run test
 ```
 
+## Contact form
+
+`POST /api/form/contact-form` accepts JSON, URL-encoded forms, and multipart
+forms with these required text fields:
+
+| Field | Maximum length |
+| --- | --- |
+| `firstName` | 100 characters |
+| `lastName` | 100 characters |
+| `email` | 254 characters; valid email format |
+| `comment` | 5000 characters |
+| `g-recaptcha-response` | 4096 characters; token from a reCAPTCHA v2 widget |
+
+The complete request body must not exceed 16 KiB. File uploads and duplicate
+form fields are not supported. Only the four contact fields are forwarded.
+Client-provided access keys, redirects, and other Web3Forms options are ignored.
+
+The function verifies the token with Google's `siteverify` endpoint and checks
+the returned hostname against `RECAPTCHA_ALLOWED_HOSTNAMES`. Only after successful
+verification does it submit to `https://api.web3forms.com/submit`, adding the
+server-side access key. The consumed reCAPTCHA token is not forwarded to Web3Forms:
+Google tokens expire after two minutes and can only be verified once.
+
+### Configuration and deployment
+
+Create a **reCAPTCHA v2** site key and secret for `dev.nishikagupta.com`. The public
+site key belongs in the browser widget; never put the secret in browser code.
+Configure these Cloud Manager secret variables for the target EDS pipeline/site:
+
+| Secret | Purpose |
+| --- | --- |
+| `RECAPTCHA_SECRET_KEY` | Google reCAPTCHA v2 server-side secret |
+| `WEB3FORMS_ACCESS_KEY` | Web3Forms submission access key |
+
+`config/edgeFunctions.yaml` maps these secrets into `secret_default` and configures
+`RECAPTCHA_ALLOWED_HOSTNAMES` as `dev.nishikagupta.com`. Set a comma-separated list
+of permitted widget hostnames for each deployment tier; omit schemes and paths.
+The function fails closed if either secret or the hostname configuration is missing.
+Config and secret stores are not available in Cloud Manager sandbox programs.
+
+Deploy the updated configuration through the site's Cloud Manager EDS pipeline
+to provision the secrets, configuration, and CDN route. Then build and deploy the
+worker to the same site:
+
+```bash
+npm test
+npm run build
+aio aem edge-functions deploy my-edge-function \
+  --package pkg/aem-edge-functions-boilerplate.tar.gz
+```
+
+For local serving, configure the same two secrets and
+`RECAPTCHA_ALLOWED_HOSTNAMES` in the local Fastly stores using untracked
+configuration. Do not commit real credentials.
+
+**Web3Forms prerequisite:** Its [API documentation](https://docs.web3forms.com/getting-started/api-reference)
+requires a paid plan and server-IP whitelisting for server-side requests.
+Arrange supported edge-runtime access with Web3Forms before live use; the worker
+does not bypass that restriction.
+
+### Browser submission
+
+Render the Google reCAPTCHA v2 widget inside your contact form. It supplies
+`g-recaptcha-response` to `FormData` after a successful challenge:
+
+```javascript
+form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    const response = await fetch('/api/form/contact-form', {
+      method: 'POST',
+      body: new FormData(form),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(result.message || 'Contact form submission failed.');
+    }
+    // Display result.message in your form's success notification.
+  } catch (error) {
+    // Display error.message in your form's error notification.
+    console.error(error.message);
+  } finally {
+    grecaptcha.reset();
+  }
+});
+```
+
+No CORS headers are enabled: use this as a same-origin endpoint, rather than
+posting directly to the generated edge-function debug domain.
+Always obtain a new token before retrying. Do not automatically retry a failed
+submission: a network failure may occur after Web3Forms accepted the message.
+
+Responses are JSON `{ "success": boolean, "message": string }`, always with
+`Cache-Control: no-store`. Successful submissions return 200; invalid inputs 400,
+failed CAPTCHA/hostname checks 403, unsupported methods 405, oversized bodies 413,
+unsupported content types 415, provider rate limits 429, upstream failures 502,
+and missing/invalid server configuration 503. No form contents, tokens, secrets,
+or raw provider responses are logged or returned. Apply CDN rate limiting before
+enabling a public form if additional abuse protection is needed.
+
 ## Remote debugging
 
 Adobe Managed CDN only offers remote logging as a way to debug your program. The following command will tail your edge function standard output. You will be able to get runtime console.log from your edge function  directly in your terminal. You will have to set the argument function-name to the name you gave your function in the edge function configuration file.

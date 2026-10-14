@@ -15,6 +15,9 @@ governing permissions and limitations under the License.
 import * as response from './lib/response.js';
 import { log } from './lib/log.js';
 import { weatherHandler } from "./weather.js";
+import { ConfigStore } from "fastly:config-store";
+import { SecretStoreManager } from "./lib/config.js";
+import { contactFormHandler } from "./contact-form.js";
 
 addEventListener("fetch", (event) => event.respondWith(handleRequest(event)));
 
@@ -37,6 +40,11 @@ async function handleRequest(event) {
       headers.set("Content-Type", "text/html");
 
       finalResponse = new Response(`<html><body>Hello World ${name} from the edge!</body></html>`, { status: 200, headers });
+    } else if (url.pathname === "/api/form/contact-form") {
+      finalResponse = await contactFormHandler(req, {
+        getSecret: (key) => SecretStoreManager.getSecret(key),
+        getConfig: (key) => new ConfigStore("config_default").get(key),
+      });
     } else if (url.pathname === "/weather" && req.method === "GET") {
       finalResponse = await weatherHandler(req, event.client);
     } else {
@@ -52,4 +60,3 @@ async function handleRequest(event) {
 
   return finalResponse;
 }
-
