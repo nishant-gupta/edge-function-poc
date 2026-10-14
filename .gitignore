@@ -3,6 +3,7 @@ deploy
 
 # aio
 .aio
+/src/contact-form-config.local.js
 
 # system
 .DS_Store

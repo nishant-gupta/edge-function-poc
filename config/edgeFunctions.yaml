@@ -3,13 +3,5 @@ version: "1"
 data:
   functions:
     - name: my-edge-function
-  configs:
-    - key: RECAPTCHA_ALLOWED_HOSTNAMES
-      value: dev.nishikagupta.com
-  secrets:
-    - key: RECAPTCHA_SECRET_KEY
-      value: ${{ RECAPTCHA_SECRET_KEY }}
-    - key: WEB3FORMS_ACCESS_KEY
-      value: ${{ WEB3FORMS_ACCESS_KEY }}
   # Uncomment to enable a KV store
   # kvs: true

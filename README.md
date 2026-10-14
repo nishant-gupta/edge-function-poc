@@ -158,6 +158,21 @@ npm run test
 
 ## Contact form
 
+The implementation is split by responsibility:
+
+- `src/contact-form.js` parses and validates incoming form data, correlates logs,
+  and orchestrates verification followed by delivery.
+- `src/recaptcha.js` exports `validateRecaptcha` for Google token/hostname
+  verification and CAPTCHA-specific diagnostics.
+- `src/slack.js` exports `parseSlackWebhook` and `sendToSlack` for webhook
+  validation, message formatting, delivery, and Slack-specific diagnostics.
+- `src/lib/contact-http.js` holds shared bounded body reading, backend timeout/TLS
+  options, and safe error classification.
+
+The provider functions accept an injected `fetch` and `logEvent` callback so the
+form handler can share its named Fastly backends and request-scoped logger.
+Neither provider module reads the local credentials file directly.
+
 `POST /api/form/contact-form` accepts JSON, URL-encoded forms, and multipart
 forms with these required text fields:
 
@@ -170,35 +185,66 @@ forms with these required text fields:
 | `g-recaptcha-response` | 4096 characters; token from a reCAPTCHA v2 widget |
 
 The complete request body must not exceed 16 KiB. File uploads and duplicate
-form fields are not supported. Only the four contact fields are forwarded.
-Client-provided access keys, redirects, and other Web3Forms options are ignored.
+form fields are not supported. Only the four contact fields are included in the
+Slack message. Client-provided webhook URLs, redirects, and other extra fields
+are ignored.
 
 The function verifies the token with Google's `siteverify` endpoint and checks
-the returned hostname against `RECAPTCHA_ALLOWED_HOSTNAMES`. Only after successful
-verification does it submit to `https://api.web3forms.com/submit`, adding the
-server-side access key. The consumed reCAPTCHA token is not forwarded to Web3Forms:
+the returned hostname against `CONTACT_FORM_CONFIG.allowedHostnames`. Only after successful
+verification does it POST a JSON message to the configured Slack incoming webhook.
+`firstName` and `lastName` are combined into Name, `email` becomes Email, and
+`comment` becomes Message. User values use `plain_text` blocks rather than
+interpreted Slack markup, so form content cannot trigger Slack mentions. Long
+comments are split into sections below Slack's 3000-character section limit,
+without truncating the message or splitting emoji.
+Only a successful HTTP response with the plain-text body `ok` confirms delivery.
+The consumed reCAPTCHA token is not forwarded to Slack:
 Google tokens expire after two minutes and can only be verified once.
 
 ### Configuration and deployment
 
 Create a **reCAPTCHA v2** site key and secret for `dev.nishikagupta.com`. The public
 site key belongs in the browser widget; never put the secret in browser code.
-Configure these Cloud Manager secret variables for the target EDS pipeline/site:
+For this sandbox PoC, the contact form uses build-time JavaScript constants rather
+than Fastly config and secret stores, which sandbox programs cannot provision.
+After cloning the repository, create the local configuration file before building:
 
-| Secret | Purpose |
+```bash
+cp src/contact-form-config.example.js src/contact-form-config.local.js
+```
+
+Do not overwrite an existing populated local file. Edit the constants in
+`src/contact-form-config.local.js`:
+
+| Constant property | Value |
 | --- | --- |
-| `RECAPTCHA_SECRET_KEY` | Google reCAPTCHA v2 server-side secret |
-| `WEB3FORMS_ACCESS_KEY` | Web3Forms submission access key |
+| `recaptchaSecretKey` | Google reCAPTCHA v2 server-side secret |
+| `slackWebhookUrl` | Secret Slack incoming webhook URL |
+| `allowedHostnames` | Array of permitted widget hostnames, initially `["dev.nishikagupta.com"]` |
 
-`config/edgeFunctions.yaml` maps these secrets into `secret_default` and configures
-`RECAPTCHA_ALLOWED_HOSTNAMES` as `dev.nishikagupta.com`. Set a comma-separated list
-of permitted widget hostnames for each deployment tier; omit schemes and paths.
-The function fails closed if either secret or the hostname configuration is missing.
-Config and secret stores are not available in Cloud Manager sandbox programs.
+The local file is git-ignored. The tracked example deliberately has a blank
+reCAPTCHA secret and webhook URL; the handler returns 503 until both are populated.
+Use hostnames without schemes or paths in `allowedHostnames`.
+Do not commit real credentials or copy this module into browser code.
 
-Deploy the updated configuration through the site's Cloud Manager EDS pipeline
-to provision the secrets, configuration, and CDN route. Then build and deploy the
-worker to the same site:
+Create a Slack app, enable **Incoming Webhooks**, choose **Add New Webhook to
+Workspace**, and authorize the intended contact-form channel. Put the generated
+URL in `slackWebhookUrl`. Only HTTPS webhooks on `hooks.slack.com` or
+`hooks.slack-gov.com` with a `/services/.../.../...` path are accepted; redirects
+are not followed. An existing local PoC file only needs the new `slackWebhookUrl`
+property; the former `web3formsAccessKey` is no longer used.
+See [Slack's incoming webhook guide](https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/).
+
+**PoC only:** These values are embedded in the compiled worker. Treat the local
+file, Wasm binary, and deployment archive as sensitive; do not publish them as
+public CI artifacts. The local file must be supplied separately on each build
+machine. Changing a constant requires a rebuild and redeployment. For production,
+use a non-sandbox program with secret stores, or a backend with secure secrets.
+
+Deploy `config/cdn.yaml` through the site's Cloud Manager EDS pipeline if the
+contact-form route has not already been deployed. The PoC contact form no longer
+requires Cloud Manager secret mappings or config-store provisioning.
+Build and deploy the worker to the same site:
 
 ```bash
 npm test
@@ -207,14 +253,10 @@ aio aem edge-functions deploy my-edge-function \
   --package pkg/aem-edge-functions-boilerplate.tar.gz
 ```
 
-For local serving, configure the same two secrets and
-`RECAPTCHA_ALLOWED_HOSTNAMES` in the local Fastly stores using untracked
-configuration. Do not commit real credentials.
-
-**Web3Forms prerequisite:** Its [API documentation](https://docs.web3forms.com/getting-started/api-reference)
-requires a paid plan and server-IP whitelisting for server-side requests.
-Arrange supported edge-runtime access with Web3Forms before live use; the worker
-does not bypass that restriction.
+Local serving uses the same constants file; no contact-form store setup is needed.
+The existing example request logger still attempts to read `LOG_LEVEL` from a
+config store and may print "No config store found, using default log level" on a
+sandbox. That warning is independent of contact-form configuration.
 
 ### Browser submission
 
@@ -246,7 +288,7 @@ form.addEventListener('submit', async (event) => {
 No CORS headers are enabled: use this as a same-origin endpoint, rather than
 posting directly to the generated edge-function debug domain.
 Always obtain a new token before retrying. Do not automatically retry a failed
-submission: a network failure may occur after Web3Forms accepted the message.
+submission: a network failure may occur after Slack accepted the message.
 
 Responses are JSON `{ "success": boolean, "message": string }`, always with
 `Cache-Control: no-store`. Successful submissions return 200; invalid inputs 400,
@@ -255,6 +297,42 @@ unsupported content types 415, provider rate limits 429, upstream failures 502,
 and missing/invalid server configuration 503. No form contents, tokens, secrets,
 or raw provider responses are logged or returned. Apply CDN rate limiting before
 enabling a public form if additional abuse protection is needed.
+
+### Diagnostic logs
+
+The handler emits structured JSON logs with `component: "contact-form"` and a
+generated `requestId`, also returned in the `X-Request-ID` response header.
+Use that ID to correlate one form submission across these events:
+
+| Event | Diagnostic details |
+| --- | --- |
+| `request.received`, `request.validated` | Method, route, body encoding, contact field lengths, token presence |
+| `request.rejected`, `configuration.unavailable` | Validation reason/field or configuration-presence flags |
+| `captcha.started`, `captcha.response`, `captcha.validated` | Verification endpoint, HTTP status, success, hostname match, known Google error codes, timing |
+| `slack.started`, `slack.response`, `slack.result` | Redacted endpoint, outbound field names, HTTP status, provider success and recognized Slack response code, timing |
+| `request.completed` | Final HTTP status and total duration |
+
+Failures also emit stage-specific events such as `captcha.failed`,
+`slack.http_failure`, and `slack.invalid_response_body`. Exception logs
+include the error type, failure stage, and a categorized reason (timeout, DNS,
+TLS, redirect, backend availability, connection, network, invalid response, or
+unknown), never the potentially sensitive exception message. These categories
+are diagnostic hints based on the runtime's error text, not proof of a root cause.
+Google verification requests are not automatically retried because CAPTCHA
+tokens are single-use.
+The contact route uses explicit Fastly backends for Google and Slack with a
+10-second connection timeout, a 15-second first-byte timeout, and a 10-second
+between-bytes timeout. Fastly's default connection timeout is only one second;
+the explicit setting avoids failing slow connections at that threshold.
+`captcha.started` and `slack.started` record the configured values in `timeoutsMs`.
+TLS certificate hostname verification remains enabled. These backend settings
+apply only to the contact route; the weather example is unchanged.
+Only allowlisted Slack response codes such as `ok`, `invalid_payload`,
+`action_prohibited`, and `no_service` are logged. Other response bodies are
+reported as `unrecognized_response`, not dumped into logs. The webhook's
+credential path, form values, secrets, tokens, raw HTML, and response headers are
+never logged. Provider response-body reads are limited to 16 KiB.
+Keep diagnostic logs access-controlled; this is not a request/payload dump.
 
 ## Remote debugging
 
