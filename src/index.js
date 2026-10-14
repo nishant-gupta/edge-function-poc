@@ -28,8 +28,14 @@ async function handleRequest(event) {
     // Route matching
     if (url.pathname === "/" && req.method === "GET") {
       finalResponse = new Response("Hello World from the edge!", { status: 200 });
-    } else if (url.pathname === "/hello-world" && req.method === "GET") {
-      finalResponse = new Response("Hello World Nishant from the edge!", { status: 200 });
+    } else if (url.pathname === "/hello-worlds" && req.method === "GET") {
+      // fetch param name from request
+      const name = url.searchParams.get("name") || "Nishant";
+      // dont cache the response at CDN
+      const headers = new Headers();
+      headers.set("Cache-Control", "no-store");
+
+      finalResponse = new Response(`Hello World ${name} from the edge!`, { status: 200, headers });
     } else if (url.pathname === "/weather" && req.method === "GET") {
       finalResponse = await weatherHandler(req, event.client);
     } else {
