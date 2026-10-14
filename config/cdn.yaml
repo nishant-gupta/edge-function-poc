@@ -15,6 +15,12 @@ data:
             value: { reqProperty: clientIp }
   originSelectors:
     rules:
+      - name: route-contact-form-to-edge-function
+        when: { reqProperty: path, equals: "/api/form/contact-form" }
+        action:
+          type: selectAemOrigin
+          originName: edgefunction-my-edge-function
+          skipCache: true
       - name: route-weather-to-edge-function
         when: { reqProperty: path, equals: "/weather" }
         action:
