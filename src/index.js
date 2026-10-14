@@ -29,7 +29,7 @@ async function handleRequest(event) {
     if (url.pathname === "/" && req.method === "GET") {
       finalResponse = new Response("Hello World from the edge!", { status: 200 });
     } else if (url.pathname === "/hello-world" && req.method === "GET") {
-      finalResponse = new Response("Hello World from the edge!", { status: 200 });
+      finalResponse = new Response("Hello World Nishant from the edge!", { status: 200 });
     } else if (url.pathname === "/weather" && req.method === "GET") {
       finalResponse = await weatherHandler(req, event.client);
     } else {
