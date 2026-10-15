@@ -13,8 +13,10 @@ governing permissions and limitations under the License.
 /// <reference types="@fastly/js-compute" />
 
 import { ConfigStore } from "fastly:config-store";
+import { Logger } from "fastly:logger";
 
 const logger = new Logger("customerHttps");
+const loggerSplunk = new Logger("customerSplunk");
 
 const log = (req, resp) => {
   let logLevel = 'info';
@@ -38,6 +40,7 @@ const log = (req, resp) => {
   }
 
   logger.log(JSON.stringify(record));
+  loggerSplunk.log(JSON.stringify(record));
   console.log(JSON.stringify(record));
 }
 
