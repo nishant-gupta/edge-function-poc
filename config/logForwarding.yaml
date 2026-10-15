@@ -1,0 +1,18 @@
+kind: "LogForwarding"
+version: "1"
+metadata:
+  envTypes:
+    - prod
+data:
+  splunk:
+    default:
+      enabled: true
+      host: "prd-p-12f3w.splunkcloud.com"
+      token: "${{SPLUNK_TOKEN}}"
+      index: "eds_logs"
+    cdn:
+      enabled: true
+      token: "${{SPLUNK_TOKEN}}"
+      index: "eds_logs"
+    aem:
+      enabled: false
