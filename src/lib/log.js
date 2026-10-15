@@ -40,7 +40,7 @@ const log = (req, resp) => {
   }
 
   logger.log(JSON.stringify(record));
-  loggerSplunk.log(JSON.stringify(record));
+  loggerSplunk.log(JSON.stringify({ event: record }));
   console.log(JSON.stringify(record));
 }
 
