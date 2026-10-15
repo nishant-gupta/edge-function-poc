@@ -1,0 +1,98 @@
+name: Deploy edge function
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: edge-function-eds-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AEM_EDGE_FUNCTIONS_ORG_ID: "60151F73631B03A60A495C05@AdobeOrg"
+      AEM_EDGE_FUNCTIONS_PROGRAM_ID: "154435"
+      AEM_EDGE_FUNCTIONS_EDGE_DELIVERY: "true"
+      AEM_EDGE_FUNCTIONS_SITE_DOMAIN: "dev.nishikagupta.com"
+      EDGE_FUNCTION_NAME: "my-edge-function"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test -- --reporter dot
+
+      - name: Install Adobe CLI and Edge Functions plugin
+        run: |
+          npm install --global @adobe/aio-cli@11.2.0
+          aio plugins:install @adobe/aio-cli-plugin-aem-edge-functions@1.0.5
+
+      - name: Prepare PoC contact configuration
+        env:
+          RECAPTCHA_SECRET_KEY: ${{ secrets.RECAPTCHA_SECRET_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from "node:fs";
+          import { parseSlackWebhook } from "./src/slack.js";
+
+          for (const name of ["RECAPTCHA_SECRET_KEY", "SLACK_WEBHOOK_URL"]) {
+            if (!process.env[name]?.trim()) {
+              throw new Error(`Missing GitHub Actions secret: ${name}`);
+            }
+          }
+          if (!parseSlackWebhook(process.env.SLACK_WEBHOOK_URL)) {
+            throw new Error("SLACK_WEBHOOK_URL must be a valid Slack incoming webhook URL.");
+          }
+          const config = {
+            recaptchaSecretKey: process.env.RECAPTCHA_SECRET_KEY,
+            slackWebhookUrl: process.env.SLACK_WEBHOOK_URL,
+            allowedHostnames: [process.env.AEM_EDGE_FUNCTIONS_SITE_DOMAIN],
+          };
+          writeFileSync(
+            "src/contact-form-config.local.js",
+            `export const CONTACT_FORM_CONFIG = ${JSON.stringify(config)};\n`,
+            { mode: 0o600, flag: "wx" },
+          );
+          NODE
+
+      - name: Build edge function
+        run: npm run build
+
+      - name: Deploy edge function
+        env:
+          AEM_EDGE_FUNCTIONS_ADC_CLIENT_ID: ${{ secrets.AEM_EDGE_FUNCTIONS_ADC_CLIENT_ID }}
+          AEM_EDGE_FUNCTIONS_ADC_CLIENT_SECRET: ${{ secrets.AEM_EDGE_FUNCTIONS_ADC_CLIENT_SECRET }}
+          AEM_EDGE_FUNCTIONS_ADC_SCOPES: ${{ secrets.AEM_EDGE_FUNCTIONS_ADC_SCOPES }}
+        run: |
+          : "${AEM_EDGE_FUNCTIONS_ADC_CLIENT_ID:?Missing GitHub Actions secret: AEM_EDGE_FUNCTIONS_ADC_CLIENT_ID}"
+          : "${AEM_EDGE_FUNCTIONS_ADC_CLIENT_SECRET:?Missing GitHub Actions secret: AEM_EDGE_FUNCTIONS_ADC_CLIENT_SECRET}"
+          : "${AEM_EDGE_FUNCTIONS_ADC_SCOPES:?Missing GitHub Actions secret: AEM_EDGE_FUNCTIONS_ADC_SCOPES}"
+          aio aem edge-functions deploy "$EDGE_FUNCTION_NAME" \
+            --package pkg/aem-edge-functions-boilerplate.tar.gz
+          aio aem edge-functions list
+
+      - name: Remove credential-bearing files
+        if: always()
+        run: |
+          rm -f src/contact-form-config.local.js \
+            bin/main.wasm pkg/aem-edge-functions-boilerplate.tar.gz

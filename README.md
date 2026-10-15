@@ -138,6 +138,49 @@ The following command will deploy your package to your edge function. You will h
 aio aem edge-functions deploy <function-name>
 ```
 
+### GitHub Actions deployment
+
+`.github/workflows/deploy-edge-function.yml` deploys `my-edge-function` to the
+EDS site `dev.nishikagupta.com` in program `154435`. It runs on pushes to `main`
+and can also be started from **Actions > Deploy edge function > Run workflow**.
+Manual runs deploy the selected branch; use `main` to deploy merged code.
+Deployments to this target are serialized.
+
+Add these repository secrets under **Settings > Secrets and variables >
+Actions** before running the workflow:
+
+| Secret | Value |
+| --- | --- |
+| `AEM_EDGE_FUNCTIONS_ADC_CLIENT_ID` | Adobe Developer Console OAuth server-to-server client ID |
+| `AEM_EDGE_FUNCTIONS_ADC_CLIENT_SECRET` | Client secret for that credential |
+| `AEM_EDGE_FUNCTIONS_ADC_SCOPES` | Comma-separated OAuth scopes from the credential |
+| `RECAPTCHA_SECRET_KEY` | Server-side reCAPTCHA v2 secret for the target site |
+| `SLACK_WEBHOOK_URL` | Incoming webhook URL for the contact-form Slack channel |
+
+The Adobe credential must have the required Cloud Manager API access and
+deployment permissions for this program's EDS site. The workflow authenticates
+non-interactively using the Edge Functions plugin's environment variables; it
+does not run `aio login` or copy a developer's `.aio` file. See the
+[Adobe plugin's CI/CD documentation](https://github.com/adobe/aio-cli-plugin-aem-edge-functions#cicd-setup).
+
+The workflow uses Node.js 22, locked npm dependencies, Adobe CLI 11.2.0, and Edge
+Functions plugin 1.0.5. It runs tests, creates the ignored
+`src/contact-form-config.local.js` from secrets, builds the worker, and deploys
+the resulting package. The allowed CAPTCHA hostname is the configured EDS site
+domain. Missing secrets fail the workflow explicitly.
+
+**PoC security:** Contact credentials are embedded in the compiled worker and
+deployment archive. The workflow does not upload these files as GitHub
+artifacts and removes the generated configuration, Wasm binary, and archive
+after the job, including on failure. Do not enable shell tracing or print the
+generated configuration. Existing sandbox runtime store limitations still
+apply; GitHub secrets are supplied at build time, not through Fastly stores.
+
+This workflow deploys **function code only**. Register the function and deploy
+`config/*.yaml` separately through the Cloud Manager EDS configuration pipeline.
+For EDS, `envTypes: [prod]` is the supported configuration scope even when the
+site's custom domain is named `dev.nishikagupta.com`.
+
 ## Local run
 
 The following command will run your edge function code locally and exposed a server at `http://127.0.0.1:7676`
