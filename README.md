@@ -459,21 +459,42 @@ await kv.put('visit-count', String(count + 1));
 
 AEM Edge Functions is compatible with the [log forwarding feature](https://experienceleague.adobe.com/en/docs/experience-manager-cloud-service/content/implementing/developing/log-forwarding).
 
-You can define your logging configuration as follow (create a logForwarding.yaml file next to the edgeFunctions.yaml)
+`config/logForwarding.yaml` provides a production-only Splunk forwarding
+configuration alongside `edgeFunctions.yaml`:
 
-```
+```yaml
 kind: "LogForwarding"
 version: "1"
+metadata:
+  envTypes:
+    - prod
 data:
   splunk:
     default:
       enabled: true
-      host: "splunk-host.example.com"
+      host: "prd-p-12f3w.splunkcloud.com"
       token: "${{SPLUNK_TOKEN}}"
-      index: "AEMaaCS"
+      index: "eds_logs"
+    cdn:
+      enabled: true
+      token: "${{SPLUNK_TOKEN}}"
+      index: "eds_logs"
+    aem:
+      enabled: false
 ```
 
-and use the logger in your code as follow:
+The configured Splunk HEC host is `prd-p-12f3w.splunkcloud.com`. Configure
+`SPLUNK_TOKEN` as a Cloud Manager secret environment variable for the target
+environment, and ensure the token can write to the `eds_logs` index. Both the
+default and CDN settings reference this secret. Do not put the actual token in
+this file.
+
+Deploy this configuration through the Cloud Manager configuration pipeline;
+building or deploying the Edge Function package does not apply it. The
+`metadata.envTypes` restriction excludes dev and stage. CDN forwarding is
+enabled; AEM forwarding is disabled.
+
+Use the named logger in Edge Function code as follows:
 
 ```
 import { Logger } from "fastly:logger";
